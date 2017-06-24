@@ -1,0 +1,60 @@
+#!/bin/bash -e
+#
+# The 'run' performs a simple test that verifies the image.
+
+source $(readlink -zf $(dirname "${BASH_SOURCE[0]}"))/functions
+
+run_docker_app() {
+  CONTAINER_ARGS=${CONTAINER_ARGS:-'--user=100001'}
+  docker run ${CONTAINER_ARGS} --cidfile=${cid_file} ${IMAGE_NAME} &>/dev/null
+}
+
+test_port() {
+  info "Checking the container port $(container_ip) $(container_port) is open.."
+  set +e
+  local max_attempts=30
+  local sleep_time=15
+  local attempt=1
+  local result=1
+  while [ $attempt -le $max_attempts ]; do
+    : </dev/tcp/$(container_ip)/$(container_port)
+    if [ $? -eq 0 ]; then
+      result=0
+      break
+    fi
+    attempt=$(( $attempt + 1 ))
+    sleep $sleep_time
+  done
+  set -e
+
+  return $result
+}
+
+test_component() {
+  local cid_file=$(mktemp -p $CIDFILE_DIR -u --suffix=.cid)
+  run_docker_app &
+
+  # Wait for the container to write it's CID file
+  wait_for_cid
+
+  info "Testing container version"
+  test_container_command "${VERSION_COMMAND}" "${VERSION}"
+
+  test_port
+
+  # Extra tests
+  if [ -n "$(type extra_tests)" ]; then
+    extra_tests
+  fi
+
+  container_cleanup
+}
+
+info "Testing component..."
+test_component
+
+info "Testing with random user..."
+CONTAINER_ARGS="-u 12345" test_component
+
+info "Testing with resource limits (512MB memory and 0.5 CPU)"
+CONTAINER_ARGS="--memory=512M --memory-swap=0 --cpu-period=100000 --cpu-quota=50000" test_component

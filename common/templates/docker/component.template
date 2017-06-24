@@ -1,0 +1,2 @@
+# Copy the component scripts (override existing container-entrypoint)
+COPY ./component/bin/ /usr/bin/

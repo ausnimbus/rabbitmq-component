@@ -1,0 +1,21 @@
+#!/bin/bash -e
+#
+# The 'run' performs a simple test that verifies that image
+#
+# IMAGE_NAME specifies a name of the candidate image used for testing.
+# The image has to be available before this script is executed.
+#
+
+IMAGE_NAME=${IMAGE_NAME-ausnimbus/rabbitmq:latest}
+VERSION=${VERSION-"latest"}
+
+VERSION_COMMAND="env"
+
+CONTAINER_ARGS="-e RABBITMQ_DEFAULT_USER=test -e RABBITMQ_DEFAULT_PASS=test"
+
+extra_tests() {
+  echo ""
+}
+
+test_dir="$(readlink -zf $(dirname "${BASH_SOURCE[0]}"))"
+source ${test_dir}/../common/tests/component

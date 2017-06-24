@@ -1,0 +1,41 @@
+node {
+        def variants = "%VARIANTS%".split(',');
+        for (int v = 0; v < variants.length; v++) {
+
+                def versions = "%VERSIONS%".split(',');
+                for (int i = 0; i < versions.length; i++) {
+
+                  if (variants[v] == "default") {
+                    variant = ""
+                    tag = "%tag%"
+                  } else {
+                    variant = variants[v]
+                    tag = "%tag%-${variant}"
+                  }
+
+
+                        try {
+                                stage("Build (%DISPLAY_NAME%-${tag})") {
+                                        %BUILD%
+                                }
+                                stage("Test (%DISPLAY_NAME%-${tag})") {
+                                        %TEST%
+                                }
+                                stage("Stage (%DISPLAY_NAME%-${tag})") {
+                                        %STAGE%
+                                }
+                        } finally {
+                                openshift.withCluster() {
+                                        echo "Deleting test resources %NAME%-ex"
+                                        openshift.selector("dc", [app: "%NAME%-ex"]).delete()
+                                        openshift.selector("bc", [app: "%NAME%-ex"]).delete()
+                                        openshift.selector("svc", [app: "%NAME%-ex"]).delete()
+                                        openshift.selector("is", [app: "%NAME%-ex"]).delete()
+                                        openshift.selector("pods", [app: "%NAME%-ex"]).delete()
+                                        openshift.selector("routes", [app: "%NAME%-ex"]).delete()
+                                }
+                        }
+
+                }
+        }
+}

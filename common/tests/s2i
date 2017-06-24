@@ -1,0 +1,140 @@
+#!/bin/bash -e
+#
+# This runs the standard tests for all our S2I images
+# The following ENV variables are expected to be included:
+#
+#   - IMAGE_NAME
+#   - VERSION
+#   - S2I_ARGS
+#   - TEST_APPS
+#   - VERSION_COMMAND
+#   - EXTRA_TESTS (optional)
+#
+#   - test_dir
+#
+
+source $(readlink -zf $(dirname "${BASH_SOURCE[0]}"))/functions
+
+run_s2i_build() {
+  info "Building the ${1} application image..."
+  s2i build ${S2I_ARGS} -c file://${test_dir}/${1} ${IMAGE_NAME} ${IMAGE_NAME}-testapp
+}
+
+prepare_app() {
+  if ! container_exists ${IMAGE_NAME}; then
+    echo "ERROR: The image ${IMAGE_NAME} must exist before this script is executed."
+    exit 1
+  fi
+}
+
+run_test_app() {
+  CONTAINER_ARGS=${CONTAINER_ARGS:-'--user=100001'}
+  docker run ${CONTAINER_ARGS} -d --cidfile=${cid_file} ${IMAGE_NAME}-testapp > /dev/null 2>&1
+}
+
+test_s2i_usage() {
+  info "Testing 's2i usage' ..."
+  s2i usage ${S2I_ARGS} ${IMAGE_NAME} &>/dev/null
+}
+
+test_docker_run_usage() {
+  info "Testing 'docker run' usage ..."
+  docker run --rm ${IMAGE_NAME} &>/dev/null
+}
+
+test_connection() {
+  info "Testing the HTTP connection (http://$(container_ip):$(container_port)) ${CONTAINER_ARGS} ..."
+
+  set +e
+  local max_attempts=30
+  local sleep_time=1
+  local attempt=1
+  local result=1
+  while [ $attempt -le $max_attempts ]; do
+    response_code=$(curl -s -w %{http_code} -o /dev/null http://$(container_ip):$(container_port)/)
+    status=$?
+    if [ $status -eq 0 ]; then
+      if [ $response_code -eq 200 ]; then
+        result=0
+      fi
+      break
+    fi
+    attempt=$(( $attempt + 1 ))
+    sleep $sleep_time
+  done
+  set -e
+
+  return $result
+}
+
+test_ab() {
+  info "Running Apache Benchmark (http://$(container_ip):$(container_port)) ${CONTAINER_ARGS} ..."
+
+  local ab_requests=${AB_REQUESTS:-"100"}
+  local ab_params=${AB_PARAMS:-"-k -n ${ab_requests} -c 32 -l"}
+
+  out=$(docker run --rm quay.io/ausnimbus/ab ab $ab_params http://$(container_ip):$(container_port)/)
+  echo $out
+
+  return $(echo $out | grep "Complete requests:" | grep -q $ab_requests)
+}
+
+test_application() {
+  local cid_file=$(mktemp -p $CIDFILE_DIR -u --suffix=.cid)
+  # Verify that the HTTP connection can be established to test application container
+  run_test_app
+
+  # Wait for the container to write it's CID file
+  wait_for_cid
+
+  info "Testing container version"
+  test_container_command "${VERSION_COMMAND}" "${VERSION}"
+
+  test_connection
+  test_ab
+
+  container_cleanup
+}
+
+# Verify the 'usage' script is working properly when running the base image with 's2i usage ...'
+test_s2i_usage
+
+# Verify the 'usage' script is working properly when running the base image with 'docker run ...'
+test_docker_run_usage
+
+for app in ${TEST_APPS[@]}; do
+  prepare_app ${app}
+  run_s2i_build ${app}
+
+  # test application with default user
+  info "${app}: Testing with default user..."
+  test_application
+
+  info "${app}: Testing with random user..."
+  CONTAINER_ARGS="-u 123456" test_application
+
+  info "${app}: Test with resource limits (512MB memory and 0.5 CPU)..."
+  CONTAINER_ARGS="--memory=512M --memory-swap=0 --cpu-period=100000 --cpu-quota=50000" test_application
+
+  # Build the application image twice to ensure the 'save-artifacts' and
+  # 'restore-artifacts' scripts are working properly
+  info "${app}: Test incremental builds (build #1)"
+  S2I_ARGS="--incremental --rm" run_s2i_build ${app}
+  info "${app}: Test incremental builds (build #2)"
+  S2I_ARGS="--incremental --rm" run_s2i_build ${app}
+  test_application
+  cleanup_app
+
+  info "${app}: Test with DEBUG=TRUE"
+  S2I_ARGS="-e DEBUG=TRUE" run_s2i_build ${app}
+  CONTAINER_ARGS='-e DEBUG=TRUE --user=100001' test_application
+  cleanup_app
+
+  # Extra tests
+  if [ -n "$(type extra_tests)" ]; then
+    extra_tests
+    cleanup_app
+  fi
+
+  info "All tests for the ${app} finished successfully."
+done

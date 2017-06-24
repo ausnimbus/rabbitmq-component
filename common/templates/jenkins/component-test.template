@@ -1,0 +1,26 @@
+openshift.withCluster() {
+        echo "==============================="
+        echo "Starting test application"
+        echo "==============================="
+
+        def testApp = openshift.newApp("%REPO%:${tag}", "-l app=%NAME%-ex");
+        echo "new-app created ${testApp.count()} objects named: ${testApp.names()}"
+        testApp.describe()
+
+        def testAppDC = testApp.narrow("dc");
+        echo "Waiting for ${testAppDC.names()} to start"
+        timeout(10) {
+                testAppDC.untilEach(1) {
+                        return it.object().status.availableReplicas >= 1
+                }
+        }
+        echo "${testAppDC.names()} is ready"
+
+        def testAppService = testApp.narrow("svc");
+        def testAppHost = testAppService.object().spec.clusterIP;
+        def testAppPort = testAppService.object().spec.ports[0].port;
+
+        sleep 60
+        echo "Testing endpoint ${testAppHost}:${testAppPort}"
+        sh ": </dev/tcp/$testAppHost/$testAppPort"
+}

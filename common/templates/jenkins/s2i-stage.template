@@ -1,0 +1,7 @@
+openshift.withCluster() {
+        echo "==============================="
+        echo "Tag new image into staging"
+        echo "==============================="
+
+        openshift.tag("ausnimbus-ci/%REPO%:${tag}", "ausnimbus-staging/%REPO%:${tag}")
+}

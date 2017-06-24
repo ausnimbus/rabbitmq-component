@@ -1,0 +1,92 @@
+#!/bin/bash
+#
+# This generates our Dockerfile and Jenkinsfile for various containers
+# used within AusNimbus
+#
+# The following ENV variables are expected to be included:
+#
+#   - $VERSIONS (comma seperated versions to generate)
+#   - $FROM (overwrides the FROM layout defaults to %NAME%:%VERSION%%variant%)
+#   - $TYPE (s2i or component)
+#   - $VARIANTS (eg. default,alpine)
+#   - $REPO (eg. redis-component defaults to $TYPE-$NAME)
+#
+
+FROM=${FROM:-"%NAME%:%TAG%"}
+TAG=${TAG:-"%VERSION%"}
+TEMPLATES=${TEMPLATES:-"pre,$TYPE,template,post"}
+
+pushd $(readlink -zf $(dirname "${BASH_SOURCE[0]}")) >/dev/null
+cd ..
+
+for variant in ${VARIANTS//,/ }; do
+
+  # Set default variant rules (this logic is replicated in the Jenkinsfile.template)
+  if [ $variant == "default" ]; then
+    tag=$TAG
+    variant=""
+    dockerfile_template="Dockerfile.template"
+  else
+    tag="$TAG-$variant"
+    dockerfile_template="Dockerfile-$variant.template"
+  fi
+
+  # Generate our versions
+  for version in ${VERSIONS//,/ }; do
+    mkdir -p ../versions/$version/$variant/
+
+    # Dockerfile template
+    dockerfile=../versions/$version/$variant/Dockerfile
+    echo -e '#\n# NOTE: THIS DOCKERFILE IS GENERATED VIA "./hack/run update"\n#\n# DO NOT EDIT IT DIRECTLY.\n#' > $dockerfile
+    echo -e "FROM %FROM%" >> $dockerfile
+
+    # Loop through the templates
+    for template in ${TEMPLATES//,/ }; do
+      echo -e "# <$template>\n" >> $dockerfile
+      if [ $template == 'template' ]; then
+        cat ../$dockerfile_template >> $dockerfile
+      else
+        cat templates/docker/$variant/$template.template >> $dockerfile
+      fi
+      echo -e "\n# </$template>" >> $dockerfile
+    done
+
+    sed -e "s;%FROM%;$FROM;g" \
+        -e "s;%TAG%;$tag;g" \
+        -e "s;%NAME%;$NAME;g" \
+        -e "s;%VERSION%;$version;g" \
+        -e "s;%DISPLAY_NAME%;$DISPLAY_NAME;g" \
+        -e "s;%TYPE%;$TYPE;g" \
+        -e "s;%VARIANT%;$variant;g" \
+        -e "s;%REPO%;$REPO;g" \
+        -i $dockerfile
+  done
+
+done
+
+# Jenkinsfile template
+jenkins_build=$(awk '{printf "%s\\n", $0}' templates/jenkins/$TYPE-build.template)
+jenkins_test=$(awk '{printf "%s\\n", $0}' templates/jenkins/$TYPE-test.template)
+jenkins_stage=$(awk '{printf "%s\\n", $0}' templates/jenkins/$TYPE-stage.template)
+echo -e '/**\n* NOTE: THIS JENKINSFILE IS GENERATED VIA "./hack/run update"\n*\n* DO NOT EDIT IT DIRECTLY.\n*/' > ../Jenkinsfile
+cat templates/jenkins/Jenkinsfile.template >> ../Jenkinsfile
+
+# ${version[i]} and ${tag} are internal Jenkinsfile variables
+sed -e "s|%BUILD%|${jenkins_build}|g" \
+    -e "s|%TEST%|${jenkins_test}|g" \
+    -e "s|%STAGE%|${jenkins_stage}|g" \
+    -e "s;%FROM%;$FROM;g" \
+    -e "s;%TAG%;\${tag};g" \
+    -e "s;%tag%;$TAG;g" \
+    -e "s;%NAME%;$NAME;g" \
+    -e "s;%VERSIONS%;$VERSIONS;g" \
+    -e "s;%VERSION%;\${versions[i]};g" \
+    -e "s;%DISPLAY_NAME%;$DISPLAY_NAME;g" \
+    -e "s;%TYPE%;$TYPE;g" \
+    -e "s;%VARIANTS%;$(echo $VARIANTS | cut -d , -f1);g" \
+    -e "s;%VARIANT%;\${variant};g" \
+    -e "s;%REPO%;$REPO;g" \
+    -i ../Jenkinsfile
+popd >/dev/null
+
+echo "Parsed all template files"

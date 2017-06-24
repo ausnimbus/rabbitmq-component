@@ -1,0 +1,12 @@
+#!/bin/bash
+
+NAME="rabbitmq"
+DISPLAY_NAME="RabbitMQ"
+TYPE="component"
+FROM="rabbitmq:%TAG%-management"
+VARIANTS=${VARIANTS:-"default"}
+VERSIONS=${VERSIONS:-"3.6"}
+
+DOCKER_PUSH=${DOCKER_PUSH:-"false"}
+
+source $(readlink -zf $(dirname "${BASH_SOURCE[0]}"))/../common/hack/run

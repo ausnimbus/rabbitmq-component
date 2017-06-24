@@ -1,0 +1,17 @@
+RUN apk --no-cache add git && rm -rf /var/cache/apk/*
+
+ENV STI_SCRIPTS_PATH=/usr/libexec/s2i
+
+LABEL io.openshift.expose-services="8080:http" \
+    io.openshift.tags="builder,%NAME%" \
+    io.openshift.s2i.scripts-url=image:///usr/libexec/s2i
+
+# Copy the S2I scripts from the specific language image to $STI_SCRIPTS_PATH
+COPY ./s2i/bin/ $STI_SCRIPTS_PATH
+
+# Directory with the sources is set as the working directory so all S2I scripts
+# can execute relative to this path.
+WORKDIR ${HOME}
+
+EXPOSE 8080
+CMD /usr/bin/base-usage

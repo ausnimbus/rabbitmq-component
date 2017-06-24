@@ -1,0 +1,4 @@
+#!/bin/bash -eu
+
+source /opt/app-root/etc/rabbitmq_environment
+exec docker-entrypoint.sh rabbitmq-server

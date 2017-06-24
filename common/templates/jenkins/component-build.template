@@ -1,0 +1,100 @@
+openshift.withCluster() {
+        openshift.apply([
+                                "apiVersion" : "v1",
+                                "items" : [
+                                        [
+                                                "apiVersion" : "v1",
+                                                "kind" : "ImageStream",
+                                                "metadata" : [
+                                                        "name" : "%NAME%",
+                                                        "labels" : [
+                                                                "builder" : "%REPO%"
+                                                        ]
+                                                ],
+                                                "spec" : [
+                                                        "tags" : [
+                                                                [
+                                                                        "name" : "${tag}",
+                                                                        "from" : [
+                                                                                "kind" : "DockerImage",
+                                                                                "name" : "%FROM%",
+                                                                        ],
+                                                                        "referencePolicy" : [
+                                                                                "type" : "Source"
+                                                                        ]
+                                                                ]
+                                                        ]
+                                                ]
+                                        ],
+                                        [
+                                                "apiVersion" : "v1",
+                                                "kind" : "ImageStream",
+                                                "metadata" : [
+                                                        "name" : "%REPO%",
+                                                        "labels" : [
+                                                                "builder" : "%REPO%"
+                                                        ]
+                                                ]
+                                        ]
+                                ],
+                                "kind" : "List"
+                        ])
+        openshift.apply([
+                                "apiVersion" : "v1",
+                                "kind" : "BuildConfig",
+                                "metadata" : [
+                                        "name" : "%REPO%-${tag}",
+                                        "labels" : [
+                                                "builder" : "%REPO%"
+                                        ]
+                                ],
+                                "spec" : [
+                                        "output" : [
+                                                "to" : [
+                                                        "kind" : "ImageStreamTag",
+                                                        "name" : "%REPO%:${tag}"
+                                                ]
+                                        ],
+                                        "runPolicy" : "Serial",
+                                        "resources" : [
+                                            "limits" : [
+                                                "memory" : "2Gi"
+                                            ]
+                                        ],
+                                        "source" : [
+                                                "git" : [
+                                                        "uri" : "https://github.com/ausnimbus/%REPO%"
+                                                ],
+                                                "type" : "Git"
+                                        ],
+                                        "strategy" : [
+                                                "dockerStrategy" : [
+                                                        "dockerfilePath" : "versions/${versions[i]}/${variant}/Dockerfile",
+                                                        "from" : [
+                                                                "kind" : "ImageStreamTag",
+                                                                "name" : "%NAME%:${tag}"
+                                                        ]
+                                                ],
+                                                "type" : "Docker"
+                                        ]
+                                ]
+                        ])
+        echo "Created %REPO%:${tag} objects"
+        /**
+        * TODO: Replace the sleep with import-image
+        * openshift.importImage("%NAME%:${tag}")
+        */
+        sleep 60
+
+        echo "==============================="
+        echo "Starting build %REPO%-${tag}"
+        echo "==============================="
+        def builds = openshift.startBuild("%REPO%-${tag}");
+
+        timeout(10) {
+                builds.untilEach(1) {
+                        return it.object().status.phase == "Complete"
+                }
+        }
+        echo "Finished build ${builds.names()}"
+}

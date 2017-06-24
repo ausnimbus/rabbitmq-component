@@ -1,0 +1,41 @@
+#!/bin/bash -e
+#
+# This builds (docker build) and test the Docker images
+# for various containers used within AusNimbus
+#
+# The following ENV variables are expected to be included:
+#
+#   - $VERSIONS (comma seperated versions to generate)
+#   - $DOCKER_PUSH (true/false whether the image should be pushed to quay.io)
+
+pushd $(readlink -zf $(dirname "${BASH_SOURCE[0]}")) >/dev/null
+cd ..
+
+for variant in ${VARIANTS//,/ }; do
+  for version in ${VERSIONS//,/ }
+  do
+
+    if [ $variant == "default" ]; then
+      image=ausnimbus/$REPO:$version
+      docker build -t $image ../ -f ../versions/$version/Dockerfile
+    else
+      image=ausnimbus/$REPO:$version-$variant
+      docker build -t $image ../ -f ../versions/$version/$variant/Dockerfile
+    fi
+
+    #docker-squash -t $image $image
+    IMAGE_NAME=$image VERSION=$version VARIANT=$variant ../test/run
+
+    if [ $DOCKER_PUSH == "true" ]; then
+      docker tag $image quay.io/$image
+      docker push quay.io/$image
+    fi
+  done
+
+  if [ $DOCKER_PUSH == "true" ]; then
+    docker tag $image quay.io/ausnimbus/$REPO:latest
+    docker push quay.io/ausnimbus/$REPO:latest
+  fi
+done
+
+popd >/dev/null
