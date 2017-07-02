@@ -21,4 +21,4 @@ The following environment variables are available to configure your RabbitMQ ins
 
 The versions currently supported are:
 
-- 9.6
+- 3.6
